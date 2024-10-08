@@ -191,9 +191,9 @@ void setupWiFi()
   WiFiManager wm;
   // wm.resetSettings();
   bool res;
-  // res = wm.autoConnect();                            // auto generated AP name from chipid
-  res = wm.autoConnect("AutoConnectAP"); // anonymous ap
-  // res = wm.autoConnect("AutoConnectAP", "password"); // password protected ap
+  // res = wm.autoConnect();                             // auto generated AP name from chipid
+  res = wm.autoConnect("AutoConnectAP");                 // anonymous ap
+  // res = wm.autoConnect("AutoConnectAP", "password");  // password protected ap
 
   if (!res)
   {
