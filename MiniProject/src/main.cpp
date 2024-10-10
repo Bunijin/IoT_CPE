@@ -11,7 +11,7 @@
 #include <Wire.h>
 
 #include <WiFiManager.h>
-#include <Blynk.h>
+// #include <BlynkSimpleEsp32.h>
 #include <ESP_Google_Sheet_Client.h>
 
 #define LDR_PIN 17
@@ -20,8 +20,8 @@
 #define BME_SDA 19
 #define BME_SCL 21
 
-TwoWire OLED_Wire = TwoWire(0);
-TwoWire BME_Wire = TwoWire(1);
+TwoWire I2C_OLED = TwoWire(0);
+TwoWire I2C_BME = TwoWire(1);
 
 // GOOGLE SHEET
 #define PROJECT_ID ""
@@ -30,14 +30,15 @@ const char PRIVATE_KEY[] PROGMEM = "";
 const char spreadsheetId[] = "";
 
 // BLYNK
-#define BLYNK_TEMPLATE_ID ""
-#define BLYNK_TEMPLATE_NAME ""
-#define BLYNK_AUTH_TOKEN ""
-char blynk_token[33] = BLYNK_AUTH_TOKEN;
+// #define BLYNK_TEMPLATE_ID ""
+// #define BLYNK_TEMPLATE_NAME ""
+// #define BLYNK_AUTH_TOKEN ""
+// char blynk_token[33] = BLYNK_AUTH_TOKEN;
 
 // OLED
-#define OLED_RESET 4
-Adafruit_SSD1306 display(OLED_RESET);
+#define SCREEN_WIDTH 128
+#define SCREEN_HEIGHT 64
+Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &I2C_OLED, -1);
 
 // BME280
 #define BME_SCK 13
@@ -57,6 +58,7 @@ void setupBME280();
 void setupGoogleSheets();
 void tokenStatusCallback(TokenInfo info);
 unsigned long getTime();
+String getFormattedTime();
 
 // STATE
 const int MEASURE = 1;
@@ -69,6 +71,7 @@ int state;
 // VARIABLE
 float temperature, pressure, humidity, altitude;
 int count, LDRReading;
+String ldrState;
 // Timer variables
 unsigned long lastTime = 0;
 unsigned long timerDelay = 30000;
@@ -92,6 +95,8 @@ void setup()
 
 void loop()
 {
+  bool ready = GSheet.ready();
+  Serial.println(state);
   switch (state)
   {
   case MEASURE:
@@ -102,7 +107,7 @@ void loop()
     altitude = bme.readAltitude(SEALEVELPRESSURE_HPA);
     humidity = bme.readHumidity();
     // LDR
-    LDRReading = digitalRead(LDR_PIN);
+    ldrState = (digitalRead(LDR_PIN) == 1) ? "No Light" : "Light Detected";
     // YL-83
     // working on...
     state = OLED_DISPLAY;
@@ -124,7 +129,7 @@ void loop()
     display.println(" %");
 
     display.print("LDR: ");
-    display.print(LDRReading);
+    display.print(ldrState);
 
     display.display();
     state = BLYNK;
@@ -134,7 +139,6 @@ void loop()
     state = SEND_SHEET;
     break;
   case SEND_SHEET:
-    bool ready = GSheet.ready();
 
     if (ready && millis() - lastTime > timerDelay)
     {
@@ -151,12 +155,12 @@ void loop()
       epochTime = getTime();
 
       valueRange.add("majorDimension", "COLUMNS");
-      valueRange.set("values/[0]/[0]", epochTime);
-      valueRange.set("values/[1]/[0]", temperature);
-      valueRange.set("values/[2]/[0]", pressure);
-      valueRange.set("values/[3]/[0]", altitude);
-      valueRange.set("values/[4]/[0]", humidity);
-      valueRange.set("values/[5]/[0]", LDRReading);
+      valueRange.set("values/[0]/[0]", getFormattedTime());
+      valueRange.set("values/[1]/[0]", String(temperature, 2));
+      valueRange.set("values/[2]/[0]", String(pressure, 2));
+      valueRange.set("values/[3]/[0]", String(altitude, 2));
+      valueRange.set("values/[4]/[0]", String(humidity, 2));
+      valueRange.set("values/[5]/[0]", ldrState);
 
       // For Google Sheet API ref doc, go to https://developers.google.com/sheets/api/reference/rest/v4/spreadsheets.values/append
       // Append values to the spreadsheet
@@ -192,7 +196,7 @@ void setupWiFi()
   // wm.resetSettings();
   bool res;
   // res = wm.autoConnect();                             // auto generated AP name from chipid
-  res = wm.autoConnect("AutoConnectAP");                 // anonymous ap
+  res = wm.autoConnect("bunijinESP"); // anonymous ap
   // res = wm.autoConnect("AutoConnectAP", "password");  // password protected ap
 
   if (!res)
@@ -208,20 +212,25 @@ void setupWiFi()
 
 void setupOledDisplay()
 {
-  OLED_Wire.begin(OLED_SDA, OLED_SCL);
+  I2C_OLED.begin(OLED_SDA, OLED_SCL);
   if (!display.begin(SSD1306_SWITCHCAPVCC, 0x3C))
   {
     Serial.println(F("SSD1306 allocation failed"));
-    for (;;)
+    while (true)
       ;
   }
   display.clearDisplay();
+  display.setTextSize(1);
+  display.setTextColor(SSD1306_WHITE);
+  display.setCursor(0, 0);
+  display.print("OLED Init Done");
+  display.display();
 }
 
 void setupBME280()
 {
-  BME_Wire.begin(BME_SDA, BME_SCL);
-  if (!bme.begin(0x76, &BME_Wire) && !bme.begin(0x77, &BME_Wire))
+  I2C_BME.begin(BME_SDA, BME_SCL);
+  if (!bme.begin(0x76, &I2C_BME) && !bme.begin(0x77, &I2C_BME))
   {
     Serial.println(F("Could not find a valid BME280 sensor, check wiring!"));
     while (1)
@@ -255,6 +264,20 @@ unsigned long getTime()
   time(&now);
   return now;
 }
+
+String getFormattedTime()
+{
+  struct tm timeinfo;
+  if (!getLocalTime(&timeinfo))
+  {
+    return "Failed to obtain time";
+  }
+
+  char timeStr[20];
+  strftime(timeStr, sizeof(timeStr), "%Y-%m-%d %H:%M:%S", &timeinfo);
+  return String(timeStr);  // Return formatted string time
+}
+
 
 void tokenStatusCallback(TokenInfo info)
 {
